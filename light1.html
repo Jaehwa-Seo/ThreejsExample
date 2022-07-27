@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>three.js webgl - lights - physical lights</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<link type="text/css" rel="stylesheet" href="main.css">
+	</head>
+	<body>
+
+		<div id="container" style="float:left;width:50%;"></div>
+        <div id="container2" style="float:left;width:50%;"></div>
+		<div id="info">
+            스포트라이트에서 현재 공까지의 거리는 34입니다.<br> y좌표는 0.25로 고정되있다는 가정하에 왼쪽과 같은 결과로 가기 위해서는 어떻게 공을 옮겨야 할까요?<br>
+            직접 조정해서 알맞은 위치에 배치해주세요.<br> 현재 공의 좌표는 (0, 0.25, 0) 입니다.
+		</div>
+
+		<!-- Import maps polyfill -->
+		<!-- Remove this when import maps will be widely supported -->
+		<script async src="https://unpkg.com/es-module-shims@1.3.6/dist/es-module-shims.js"></script>
+
+		<script type="importmap">
+			{
+				"imports": {
+					"three": "../build/three.module.js"
+				}
+			}
+		</script>
+
+		<script type="module">
+
+			import * as THREE from 'three';
+
+			import Stats from './jsm/libs/stats.module.js';
+			import { GUI } from './jsm/libs/lil-gui.module.min.js';
+
+			import { OrbitControls } from './jsm/controls/OrbitControls.js';
+
+			let controls,camera, scene, renderer, spotLight, bulbMat, hemiLight, stats;
+			let ballMat, cubeMat, floorMat;
+
+            let camera2, scene2, renderer2, spotLight2, bulbMat2, hemiLight2, stats2,ballMesh2;
+			let ballMat2, cubeMat2, floorMat2;
+
+			let previousShadowMap = false;
+
+
+			// ref for lumens: http://www.power-sure.com/lumens.htm
+			const bulbLuminousPowers = {
+				"110000 lm (1000W)": 110000,
+				"3500 lm (300W)": 3500,
+				"1700 lm (100W)": 1700,
+				"800 lm (60W)": 800,
+				"400 lm (40W)": 400,
+				"180 lm (25W)": 180,
+				"20 lm (4W)": 20,
+				"Off": 0
+			};
+
+			// ref for solar irradiances: https://en.wikipedia.org/wiki/Lux
+			const hemiLuminousIrradiances = {
+				"0.0001 lx (Moonless Night)": 0.0001,
+				"0.002 lx (Night Airglow)": 0.002,
+				"0.5 lx (Full Moon)": 0.5,
+				"3.4 lx (City Twilight)": 3.4,
+				"50 lx (Living Room)": 50,
+				"100 lx (Very Overcast)": 100,
+				"350 lx (Office Room)": 350,
+				"400 lx (Sunrise/Sunset)": 400,
+				"1000 lx (Overcast)": 1000,
+				"18000 lx (Daylight)": 18000,
+				"50000 lx (Direct Sun)": 50000
+			};
+
+			const params = {
+				position_x:0,
+                position_y:0.25,
+                position_z:0,
+			};
+
+			init();
+			animate();
+
+			function init() {
+
+				const container = document.getElementById( 'container' );
+
+				stats = new Stats();
+				container.appendChild( stats.dom );
+
+
+				camera = new THREE.PerspectiveCamera( 50, window.innerWidth/2 / window.innerHeight, 0.1, 100 );
+				camera.position.x = -5.7;
+				camera.position.y = 1.6;
+				camera.position.z = -0.4;
+
+				scene = new THREE.Scene();
+
+				spotLight = new THREE.SpotLight(0xffffff)
+                spotLight.position.set(5,10,3);
+                const targetObject = new THREE.Object3D();
+                targetObject.position.x=5;
+                targetObject.position.z=3;
+                scene.add(targetObject);
+                spotLight.target = targetObject;
+                spotLight.castShadow = true;
+                spotLight.intensity = 800;
+                spotLight.angle= 0.1;
+                spotLight.distance = 11;
+                scene.add(spotLight);
+
+				hemiLight = new THREE.HemisphereLight( 0xddeeff, 0x0f0e0d, 0.02 );
+				scene.add( hemiLight );
+
+				floorMat = new THREE.MeshStandardMaterial( {
+					roughness: 0.8,
+					color: 0xffffff,
+					metalness: 0.2,
+					bumpScale: 0.0005
+				} );
+				const textureLoader = new THREE.TextureLoader();
+				textureLoader.load( "./texture/hardwood2_diffuse.jpg", function ( map ) {
+
+					map.wrapS = THREE.RepeatWrapping;
+					map.wrapT = THREE.RepeatWrapping;
+					map.anisotropy = 4;
+					map.repeat.set( 10, 24 );
+					map.encoding = THREE.sRGBEncoding;
+					floorMat.map = map;
+					floorMat.needsUpdate = true;
+
+				} );
+				textureLoader.load( "./texture/hardwood2_bump.jpg", function ( map ) {
+
+					map.wrapS = THREE.RepeatWrapping;
+					map.wrapT = THREE.RepeatWrapping;
+					map.anisotropy = 4;
+					map.repeat.set( 10, 24 );
+					floorMat.bumpMap = map;
+					floorMat.needsUpdate = true;
+
+				} );
+				textureLoader.load( "./texture/hardwood2_roughness.jpg", function ( map ) {
+
+					map.wrapS = THREE.RepeatWrapping;
+					map.wrapT = THREE.RepeatWrapping;
+					map.anisotropy = 4;
+					map.repeat.set( 10, 24 );
+					floorMat.roughnessMap = map;
+					floorMat.needsUpdate = true;
+
+				} );
+
+				ballMat = new THREE.MeshStandardMaterial( {
+					color: 0xffffff,
+					roughness: 0.5,
+					metalness: 1.0
+				} );
+				textureLoader.load( "./texture/earth_atmos_2048.jpg", function ( map ) {
+
+					map.anisotropy = 4;
+					map.encoding = THREE.sRGBEncoding;
+					ballMat.map = map;
+					ballMat.needsUpdate = true;
+
+				} );
+				textureLoader.load( "./texture/earth_specular_2048.jpg", function ( map ) {
+
+					map.anisotropy = 4;
+					map.encoding = THREE.sRGBEncoding;
+					ballMat.metalnessMap = map;
+					ballMat.needsUpdate = true;
+
+				} );
+
+				const floorGeometry = new THREE.PlaneGeometry( 20, 20 );
+				const floorMesh = new THREE.Mesh( floorGeometry, floorMat );
+				floorMesh.receiveShadow = true;
+				floorMesh.rotation.x = - Math.PI / 2.0;
+				scene.add( floorMesh );
+
+				const ballGeometry = new THREE.SphereGeometry( 0.25, 32, 32 );
+				const ballMesh = new THREE.Mesh( ballGeometry, ballMat );
+				ballMesh.position.set( 5, 0.25, 3);
+				ballMesh.rotation.y = Math.PI;
+				ballMesh.castShadow = true;
+				scene.add( ballMesh );
+
+				renderer = new THREE.WebGLRenderer();
+				renderer.physicallyCorrectLights = true;
+				renderer.outputEncoding = THREE.sRGBEncoding;
+				renderer.shadowMap.enabled = true;
+				renderer.toneMapping = THREE.ReinhardToneMapping;
+				renderer.setPixelRatio( window.devicePixelRatio );
+				renderer.setSize( window.innerWidth/2, window.innerHeight );
+				container.appendChild( renderer.domElement );
+
+
+				controls = new OrbitControls( camera, renderer.domElement );
+				controls.minDistance = 1;
+				controls.maxDistance = 20;
+
+				window.addEventListener( 'resize', onWindowResize );
+
+////////////////////////////////////////////////////////////////////////////22222222222222
+                const container2 = document.getElementById( 'container2' );
+
+				stats2 = new Stats();
+				container2.appendChild( stats2.dom );
+
+
+				camera2 = new THREE.PerspectiveCamera( 50, window.innerWidth/2 / window.innerHeight, 0.1, 100 );
+				camera2.position.x = -5.7;
+				camera2.position.y = 1.6;
+				camera2.position.z = -0.4;
+
+				scene2 = new THREE.Scene();
+
+                spotLight2 = new THREE.SpotLight(0xffffff)
+                spotLight2.position.set(5,10,3);
+                const targetObject2 = new THREE.Object3D();
+                targetObject2.position.x=5;
+                targetObject2.position.z=3;
+                scene.add(targetObject2);
+                spotLight2.target = targetObject2;
+                spotLight2.castShadow = true;
+                spotLight2.intensity = 800;
+                spotLight2.angle= 0.1;
+                spotLight2.distance = 11;
+                scene2.add(spotLight2);
+
+
+				hemiLight2 = new THREE.HemisphereLight( 0xddeeff, 0x0f0e0d, 0.02 );
+				scene2.add( hemiLight2 );
+
+				const floorGeometry2 = new THREE.PlaneGeometry( 20, 20 );
+				const floorMesh2 = new THREE.Mesh( floorGeometry2, floorMat );
+				floorMesh2.receiveShadow = true;
+				floorMesh2.rotation.x = - Math.PI / 2.0;
+				scene2.add( floorMesh2 );
+
+				const ballGeometry2 = new THREE.SphereGeometry( 0.25, 32, 32 );
+				ballMesh2 = new THREE.Mesh( ballGeometry2, ballMat );
+				ballMesh2.position.set( 0, 0.25, 0 );
+				ballMesh2.rotation.y = Math.PI;
+				ballMesh2.castShadow = true;
+				scene2.add( ballMesh2 );
+
+				renderer2 = new THREE.WebGLRenderer();
+				renderer2.physicallyCorrectLights = true;
+				renderer2.outputEncoding = THREE.sRGBEncoding;
+				renderer2.shadowMap.enabled = true;
+				renderer2.toneMapping = THREE.ReinhardToneMapping;
+				renderer2.setPixelRatio( window.devicePixelRatio );
+				renderer2.setSize( window.innerWidth/2, window.innerHeight );
+				container2.appendChild( renderer2.domElement );
+
+
+				const controls2 = new OrbitControls( camera2, renderer2.domElement );
+				controls2.minDistance = 1;
+				controls2.maxDistance = 20;
+
+
+
+				const gui = new GUI();
+
+				gui.add( params, 'position_x', -10.0,10.0);
+				gui.add( params, 'position_z', -10.0,10.0);
+				gui.open();
+
+			}
+
+			function onWindowResize() {
+
+				camera.aspect = window.innerWidth/2 / window.innerHeight;
+				camera.updateProjectionMatrix();
+
+				renderer.setSize( window.innerWidth/2, window.innerHeight );
+
+                camera2.aspect = window.innerWidth/2 / window.innerHeight;
+				camera2.updateProjectionMatrix();
+
+				renderer2.setSize( window.innerWidth/2, window.innerHeight );
+
+			}
+
+			//
+
+			function animate() {
+
+				requestAnimationFrame( animate );
+
+				render();
+
+			}
+
+			function render() {
+
+				renderer.toneMappingExposure = Math.pow( 0.68, 5.0 ); // to allow for very bright scenes.
+				renderer.shadowMap.enabled = true;
+
+				if ( true !== previousShadowMap ) {
+
+					ballMat.needsUpdate = true;
+					floorMat.needsUpdate = true;
+					previousShadowMap = true;
+
+				}
+
+				hemiLight.intensity = 1;
+				const time = Date.now() * 0.0005;
+
+				renderer.render( scene, camera );
+
+				stats.update();
+
+
+                renderer2.toneMappingExposure = Math.pow( 0.68, 5.0 ); // to allow for very bright scenes.
+				renderer2.shadowMap.enabled = true;
+
+                ballMesh2.position.x = params.position_x;
+                ballMesh2.position.y = params.position_y;
+                ballMesh2.position.z = params.position_z;
+
+				if ( true !== previousShadowMap ) {
+
+					ballMat2.needsUpdate = true;
+					floorMat2.needsUpdate = true;
+					previousShadowMap = true;
+
+				}
+
+				hemiLight2.intensity = 1;
+
+				renderer2.render( scene2, camera2 );
+
+				stats2.update();
+
+
+			}
+
+		</script>
+	</body>
+</html>
